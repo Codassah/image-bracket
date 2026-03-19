@@ -6,17 +6,31 @@ import random
 STATE_FILE = "state.json"
 IMAGE_FOLDER = "images"
 
+# 1. Improved Load Function
 def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
+    # If file exists and isn't empty, load it
+    if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 0:
+        try:
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            pass # If file is corrupted, move to initialization
     
-    # Initialize new tournament
+    # Initialize new tournament if file is missing or broken
+    if not os.path.exists(IMAGE_FOLDER):
+        st.error(f"Folder '{IMAGE_FOLDER}' not found!")
+        st.stop()
+        
     images = [img for img in os.listdir(IMAGE_FOLDER) if img.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    
+    if len(images) < 2:
+        st.error("Need at least 2 images to start a tournament!")
+        st.stop()
+        
     random.shuffle(images)
     return {
         "round": 1,
-        "current_pair_idx": 0, # Index of the pair (0, 1, 2...)
+        "current_pair_idx": 0,
         "bracket": images,
         "winners": []
     }
@@ -25,13 +39,19 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-# Initialize Session State
+# 2. Secure Session State Initialization
 if "tournament" not in st.session_state:
     st.session_state.tournament = load_state()
 
+# Short reference for easier typing
 state = st.session_state.tournament
 
 st.title("🔥 Image Bracket Tournament")
+
+# 3. Extra Safety Check: Ensure 'bracket' key exists
+if "bracket" not in state:
+    st.session_state.tournament = load_state()
+    st.rerun()
 
 # --- WINNER SCREEN ---
 if len(state["bracket"]) == 1:
@@ -39,7 +59,9 @@ if len(state["bracket"]) == 1:
     st.header("🏆 The Ultimate Winner!")
     st.image(os.path.join(IMAGE_FOLDER, state["bracket"][0]), use_container_width=True)
     if st.button("Reset Tournament"):
-        if os.path.exists(STATE_FILE): os.remove(STATE_FILE)
+        if os.path.exists(STATE_FILE): 
+            os.remove(STATE_FILE)
+        del st.session_state.tournament
         st.rerun()
     st.stop()
 
@@ -48,9 +70,8 @@ bracket = state["bracket"]
 pair_idx = state["current_pair_idx"]
 i = pair_idx * 2
 
-# Check if we have finished all pairs in the current round
+# Check if we finished the round
 if i >= len(bracket):
-    # Transition to next round
     state["bracket"] = state["winners"]
     state["winners"] = []
     state["current_pair_idx"] = 0
@@ -58,7 +79,7 @@ if i >= len(bracket):
     save_state(state)
     st.rerun()
 
-# Display Current Match
+# --- DISPLAY MATCH ---
 img1 = bracket[i]
 img2 = bracket[i + 1]
 
@@ -73,16 +94,12 @@ def handle_vote(winner_img):
 
 with col1:
     st.image(os.path.join(IMAGE_FOLDER, img1), use_container_width=True)
-    if st.button(f"Vote for Left", key="btn1"):
+    if st.button(f"Vote Left", key=f"L_{state['round']}_{pair_idx}"):
         handle_vote(img1)
         st.rerun()
 
 with col2:
     st.image(os.path.join(IMAGE_FOLDER, img2), use_container_width=True)
-    if st.button(f"Vote for Right", key="btn2"):
+    if st.button(f"Vote Right", key=f"R_{state['round']}_{pair_idx}"):
         handle_vote(img2)
         st.rerun()
-
-# Progress Bar (Optional but cool)
-progress = pair_idx / (len(bracket) / 2)
-st.progress(progress)
